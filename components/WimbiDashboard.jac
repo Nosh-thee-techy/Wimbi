@@ -61,7 +61,8 @@ def:pub WimbiDashboard() -> JsxElement {
             reach_percent = summary["reach_percent"] as int;
             escalation_count = summary["escalations"] as int;
             verified_count = summary["verified_reports"] as int;
-            ident = await set_resident_identity(resident_name);
+            ident = await set_resident_identity(acting_person);
+            resident_name = ident["name"] as str;
             resident_area = ident["area"] as str;
             resident_role = ident["role"] as str;
             resident_warning = ident["warning"] as str;
@@ -69,7 +70,6 @@ def:pub WimbiDashboard() -> JsxElement {
             key_status = await check_claude_key_configuration();
             claude_configured = key_status["configured"] as bool;
             events = await get_event_log();
-            acting_person = resident_name;
             loading = False;
         } except Exception { error_text = "Could not load the Wimbi sample graph."; loading = False; }
     }
@@ -80,15 +80,26 @@ def:pub WimbiDashboard() -> JsxElement {
     }, []);
 
     async def note_change(text: str) {
-        toast_text = text;
-        events = await record_action(text);
+        _ = await record_action(text);
         _ = await sync_state();
+        toast_text = text;
     }
     async def choose_acting_person(name: str) {
-        acting_person = name;
-        identity = await set_acting_as(name);
-        _ = await choose_person(name);
-        _ = await note_change("Acting as " + name + " in " + (identity["area"] as str));
+        try {
+            identity = await set_acting_as(name);
+            resolved_name = identity["name"] as str;
+            if resolved_name != "" {
+                acting_person = resolved_name;
+                resident_name = resolved_name;
+                resident_area = identity["area"] as str;
+                resident_role = identity["role"] as str;
+                resident_data = await set_resident_identity(resolved_name);
+                resident_warning = resident_data["warning"] as str;
+                acknowledged = resident_data["acknowledged"] as bool;
+                _ = await sync_state();
+                toast_text = "Acting as " + resolved_name + " in " + resident_area + ". All views synced.";
+            } else { error_text = "That person was not found in the shared sample graph."; }
+        } except Exception { error_text = "Could not change the shared acting-as person."; }
     }
     async def change_rain(e: ChangeEvent) {
         mm_value = int(e.target.value);
@@ -227,7 +238,7 @@ def:pub WimbiDashboard() -> JsxElement {
     visits_needed = needs_visit_count();
 
     return <div className="min-h-screen bg-muted/40">
-        <header className="border-b bg-card shadow-sm"><div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-4 py-4 sm:px-6"><div className="flex items-center gap-3"><div className="flex size-10 items-center justify-center rounded-xl bg-primary text-lg font-bold text-primary-foreground">W</div><div><h1 className="text-xl font-semibold">Wimbi</h1><p className="text-xs text-muted-foreground">Nairobi flood watch</p></div></div><div className="flex flex-wrap items-center gap-3"><Badge variant="outline">Sample data</Badge><Select value={acting_person} onValueChange={choose_acting_person}><SelectTrigger className="w-52"><SelectValue placeholder="Acting as" /></SelectTrigger><SelectContent>{for p in people {<SelectItem key={p.name} value={p.name}>{p.name}</SelectItem>}}</SelectContent></Select><Select value={selected_role} onValueChange={lambda (v: str) { selected_role = v; }}><SelectTrigger className="w-52"><SelectValue placeholder="Dashboard" /></SelectTrigger><SelectContent><SelectItem value="Responder Command">Responder Command</SelectItem><SelectItem value="Resident">Resident</SelectItem><SelectItem value="Community Leader">Community Leader</SelectItem><SelectItem value="Accountability">Accountability</SelectItem><SelectItem value="SMS-USSD">SMS-USSD</SelectItem></SelectContent></Select></div></div></header>
+        <header className="border-b bg-card shadow-sm"><div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-4 py-4 sm:px-6"><div className="flex items-center gap-3"><div className="flex size-10 items-center justify-center rounded-xl bg-primary text-lg font-bold text-primary-foreground">W</div><div><h1 className="text-xl font-semibold">Wimbi</h1><p className="text-xs text-muted-foreground">Nairobi flood watch</p></div></div><div className="flex flex-wrap items-center gap-3"><Badge variant="outline">Sample data</Badge><Select value={acting_person} onValueChange={lambda (name: str) { choose_acting_person(name); }}><SelectTrigger className="w-52"><SelectValue placeholder="Acting as" /></SelectTrigger><SelectContent>{for p in people {<SelectItem key={p.name} value={p.name}>{p.name}</SelectItem>}}</SelectContent></Select><Select value={selected_role} onValueChange={lambda (v: str) { selected_role = v; }}><SelectTrigger className="w-52"><SelectValue placeholder="Dashboard" /></SelectTrigger><SelectContent><SelectItem value="Responder Command">Responder Command</SelectItem><SelectItem value="Resident">Resident</SelectItem><SelectItem value="Community Leader">Community Leader</SelectItem><SelectItem value="Accountability">Accountability</SelectItem><SelectItem value="SMS-USSD">SMS-USSD</SelectItem></SelectContent></Select></div></div></header>
         <main className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 sm:px-6">
             <div className="flex flex-wrap items-end justify-between gap-4"><div><h2 className="text-2xl font-semibold tracking-tight">Flood response, connected</h2><p className="mt-1 text-sm text-muted-foreground">One sample graph links rainfall, trusted relays and resident reports.</p></div><Button onClick={fast_forward}>Fast-forward 10 min</Button></div>
             {toast_text != "" and <p role="status" className="rounded-lg border border-primary/30 bg-card p-3 text-sm">{toast_text}</p>}
