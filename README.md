@@ -1,49 +1,43 @@
 # Wimbi | Nairobi Flood Watch
 
-Wimbi is a Jac/Jaseci-first flood-warning coordination demo. It presents one fictional flood event through five views backed by one shared Jac graph. Every person, place, measurement, warning, and report is **sample data**, not live safety information.
+Wimbi is a Jac/Jaseci-first flood-coordination demo: **one sample flood event, one shared server graph, five views**. Residents, areas, warnings, acknowledgements, reports, and audit events are sample data. This is not a live warning or emergency-response service.
 
-## Shared event and graph
+## Shared state
 
-`services/wimbi.jac` defines persistent Jac graph nodes for `Area`, `River`, `Road`, `DrainagePoint`, `Person`, `Report`, and `EventEntry`. Typed edges connect downstream areas (`FlowsTo`), areas to rivers/roads/drains, people through weighted `Trusts` relationships, and reports to their areas.
+`services/wimbi.jac` stores the event as Jac graph nodes and typed edges. The service owns rainfall, area risk and ETAs, people and trust relationships, reports and verdicts, acknowledgements, visit flags, and graph-backed `EventEntry` audit records. Dashboard actions call public Jac endpoints through client `sv import`; views refresh the graph snapshot periodically so a change can appear in other views and browser tabs.
 
-The demo seeds eight Nairobi neighbourhoods, two rivers, twelve people, their roles/languages/vulnerability, and trust links. Server endpoints mutate this shared graph; the dashboard polls it every five seconds so open views can refresh after other actions. A graph-backed event log records actions for the audit view.
+The shared **Acting as** controls select one person in the server graph. The selected person drives the Resident view and SMS acknowledgement actions. Every major action should add an entry to the newest-first event log and show a short confirmation message.
 
 ## Five views
 
-Use the dashboard selector to change the view. The **Acting as** person selector is shared with Resident and Leader actions.
+1. **Responder Command** — set rainfall, review neighbourhood risk/ETA and reports, inspect resource suggestions, and fast-forward time to simulate silence escalation.
+2. **Community Leader** — review the trust circle, acknowledgement and visit status, relay warnings, and confirm completed visits.
+3. **Resident** — view role/language-aware warning guidance, acknowledge safety, and submit a report with a verification verdict.
+4. **Accountability** — inspect reach, acknowledgement, escalation and report-verification totals from the shared graph.
+5. **SMS-USSD** — simulate feature-phone commands against the same server state: `ACK|Name`, `REPORT|Area|Message`, and `STATUS|Area`.
 
-1. **Responder Command** — adjust rainfall to run downstream risk propagation and warning relay, review area risk/ETA, reports, and suggested resources; use **Fast-forward 10 min** for the silence-escalation demo.
-2. **Community Leader** — review people in the trust circle, their acknowledgement and visit status, then relay or confirm a visit.
-3. **Resident** — view a role-specific warning, acknowledge safety, and submit an area report with its verification verdict.
-4. **Accountability** — see reach, acknowledgements, escalations, and verified-report totals from the graph.
-5. **SMS-USSD** — enter `ACK|Name`, `REPORT|Area|Message`, or `STATUS|Area` to use the same server actions without a smartphone UI.
+Risk levels in the demo are Watch (30+), High (55+), and Critical (80+), with simulated ETAs. These thresholds and readings are fictional.
 
-The persistent event log is newest-first and can be opened from the dashboard. Actions display a brief “what changed” message. Risk thresholds are Watch (30+), High (55+), and Critical (80+), with simulated ETAs.
+## Jac agents
 
-## Jac agents and actions
+- `RiskPropagator` traverses `FlowsTo` links and updates area risk/ETA.
+- `WarningRelay` walks trust edges from the ward officer and stores personalized warnings.
+- `SilenceEscalator` flags unacknowledged vulnerable people for a visit.
+- `ReportVerifier` traverses area-linked reports, assigns Confirmed/Plausible status with a reason, and raises area risk for confirmed reports.
+- Jac `by llm()` provides Claude warning/resource generation; deterministic fallback messages keep the demo usable when Claude is unavailable.
 
-- `RiskPropagator` visits downstream `FlowsTo` links to update each area’s simulated risk and ETA.
-- `WarningRelay` traverses trust links from the ward officer and saves role/language-tailored warning text on people.
-- `SilenceEscalator` traverses trusted links and flags silent vulnerable residents as needing a visit.
-- `ReportVerifier` visits reports linked to areas, assigns Confirmed/Plausible status and a short reason, and increases risk for confirmed observations.
-- Resident acknowledgement, visit confirmation, rainfall changes, acting-as changes, report submissions, and SMS commands write to the same graph state.
+## Claude configuration
 
-Client Jac calls server functions through `sv import` and `await`; the dashboard and service logic are Jac. There is no Next.js, Supabase, or external database service.
+The configured model is Anthropic Claude Sonnet 4.6 (`claude-sonnet-4-6`) and Jac reads `ANTHROPIC_API_KEY`. Add a valid workspace-scoped key in JacHammer Settings → Environment, then restart the preview. The previously configured key was rejected by Anthropic because it was not workspace-scoped; the app does not display the secret. Fallback behavior remains active on provider failure.
 
-## Claude warnings and resource suggestions
+## Preview and demo path
 
-Jac `by llm()` uses Anthropic Claude Sonnet 4.6 (`claude-sonnet-4-6`) for personalized warnings and response-resource suggestions. Provider failures use deterministic fallback templates so the sample demo remains usable. Configure a workspace-compatible Anthropic key through JacHammer Settings → Environment as `ANTHROPIC_API_KEY`, then restart the preview. The current warning says this endpoint may require an Anthropic workspace-scoped key or workspace header; if Claude rejects the credential, use a workspace-scoped API key. The app only displays key-presence status and never displays the secret.
+The managed Jac preview runs `main.jac`; the client is written in Jac and calls the Jac backend, with no Next.js or Supabase.
 
-## Run and demo
+1. Raise rainfall in Responder Command and observe the shared risk/ETA and warning counts.
+2. Change Acting as, then switch to Resident or Community Leader to see the selected person's record.
+3. Acknowledge safety or confirm a visit and inspect the event log/accountability view.
+4. Submit a report and review the verdict in the responder/resident views.
+5. Send `ACK|Kevin Mwangi` or `STATUS|Dandora` from SMS-USSD and inspect the shared event log.
 
-Install project dependencies with `jac install`. The managed preview runs the Jac web app from `main.jac`.
-
-Suggested demo path:
-
-1. In Responder Command, raise rainfall and observe area risk/ETA, warnings, and resource suggestions.
-2. Change **Acting as** to a resident and switch to Resident; acknowledge safety and observe the shared status/event log.
-3. Switch to Community Leader and confirm a visit for a flagged neighbour.
-4. Submit a resident report and inspect its verdict in the responder and resident views.
-5. Use SMS-USSD with `ACK|Kevin Mwangi` or `STATUS|Dandora`, then review the shared graph and event log.
-
-This is a demo only. Do not use it for emergency response, dispatch decisions, or real-world flood warnings. All people, places, and reports are fictional sample data.
+All people, places, warnings and reports are fictional sample data. Do not use this demo for real-world safety decisions.
