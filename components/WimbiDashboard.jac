@@ -2,7 +2,7 @@ import from .ui.card { Card, CardHeader, CardTitle, CardDescription, CardContent
 import from .ui.button { Button }
 import from .ui.badge { Badge }
 import from .ui.select { Select, SelectTrigger, SelectContent, SelectItem, SelectValue }
-sv import from ..services.wimbi { Area, Person, Report, get_dashboard, set_rainfall, run_demo_flow, submit_resident_report, generate_tailored_warning, set_resident_identity, acknowledge_warning, mark_visit_handled, relay_warning, get_accountability_summary, get_resident_reports, suggest_resources_live, check_claude_key_configuration }
+sv import from ..services.wimbi { Area, Person, Report, get_dashboard, set_rainfall, run_demo_flow, submit_resident_report, generate_tailored_warning, set_resident_identity, acknowledge_warning, mark_visit_handled, relay_warning, get_accountability_summary, get_resident_reports, suggest_resources_live, check_claude_key_configuration, get_event_log, set_acting_as, record_action, simulate_sms_ussd }
 
 def:pub WimbiDashboard() -> JsxElement {
     has areas: list[Area] = [];
@@ -26,6 +26,25 @@ def:pub WimbiDashboard() -> JsxElement {
     has escalation_count: int = 0;
     has verified_count: int = 0;
     has claude_configured: bool = False;
+    has events: list[str] = [];
+    has toast_text: str = "";
+    has acting_person: str = "Kevin Mwangi";
+    has sms_text: str = "";
+    has sms_reply: str = "";
+
+    async def sync_state() {
+        data = await get_dashboard();
+        areas = data["areas"] as list[Area];
+        people = data["people"] as list[Person];
+        reports = data["reports"] as list[Report];
+        rainfall = data["rainfall"] as int;
+        summary = await get_accountability_summary();
+        ack_count = summary["acknowledged"] as int;
+        reach_percent = summary["reach_percent"] as int;
+        escalation_count = summary["escalations"] as int;
+        verified_count = summary["verified_reports"] as int;
+        events = await get_event_log();
+    }
 
     async can with entry {
         try {
@@ -47,10 +66,28 @@ def:pub WimbiDashboard() -> JsxElement {
             acknowledged = ident["acknowledged"] as bool;
             key_status = await check_claude_key_configuration();
             claude_configured = key_status["configured"] as bool;
+            events = await get_event_log();
+            acting_person = resident_name;
             loading = False;
         } except Exception { error_text = "Could not load the Wimbi sample graph."; loading = False; }
     }
 
+    useEffect(lambda {
+        interval_id = setInterval(lambda { sync_state(); }, 5000);
+        return lambda { clearInterval(interval_id); };
+    }, []);
+
+    async def note_change(text: str) {
+        toast_text = text;
+        events = await record_action(text);
+        _ = await sync_state();
+    }
+    async def choose_acting_person(name: str) {
+        acting_person = name;
+        identity = await set_acting_as(name);
+        _ = await choose_person(name);
+        _ = await note_change("Acting as " + name + " in " + (identity["area"] as str));
+    }
     async def change_rain(e: ChangeEvent) {
         mm_value = int(e.target.value);
         rainfall = mm_value;
@@ -73,6 +110,7 @@ def:pub WimbiDashboard() -> JsxElement {
             resources = await suggest_resources_live();
             resource_text = ", ".join(resources["items"] as list[str]);
             if resource_text == "" { resource_text = "No additional sample resources suggested."; }
+            _ = await note_change("Rain set to " + str(mm_value) + " mm/hr; risks propagated and warnings relayed.");
         } except Exception { error_text = "Rainfall update failed; retry the slider."; }
     }
 
@@ -108,6 +146,7 @@ def:pub WimbiDashboard() -> JsxElement {
             people = people_data["people"] as list[Person];
             summary = await get_accountability_summary();
             reach_percent = summary["reach_percent"] as int;
+            _ = await note_change(resident_name + " acknowledged. Leader view and reach updated.");
         } except Exception { error_text = "Acknowledgement could not be saved."; }
     }
 
@@ -123,6 +162,7 @@ def:pub WimbiDashboard() -> JsxElement {
             ack_count = summary["acknowledged"] as int;
             reach_percent = summary["reach_percent"] as int;
             message = "Fast-forward complete. Silent vulnerable neighbours are flagged for visits.";
+            _ = await note_change("T+10 silence escalator flagged vulnerable residents for visits.");
         } except Exception { error_text = "Escalation simulation failed."; }
     }
 
@@ -134,6 +174,7 @@ def:pub WimbiDashboard() -> JsxElement {
         ack_count = summary["acknowledged"] as int;
         reach_percent = summary["reach_percent"] as int;
         escalation_count = summary["escalations"] as int;
+        _ = await note_change(name + " visit confirmed. Escalation cleared.");
     }
 
     async def leader_relay(name: str) {
@@ -142,9 +183,20 @@ def:pub WimbiDashboard() -> JsxElement {
         ack_count = result["acknowledged"] as int;
         summary = await get_accountability_summary();
         reach_percent = summary["reach_percent"] as int;
+        _ = await note_change("Warning relayed via " + name + "; circle state refreshed.");
     }
 
     def change_report(e: ChangeEvent) { report_text = e.target.value; }
+
+    def change_sms(e: ChangeEvent) { sms_text = e.target.value; }
+    async def send_sms() {
+        result = await simulate_sms_ussd(sms_text);
+        sms_reply = result["message"] as str;
+        events = await record_action("SMS/USSD: " + sms_text);
+        sms_text = "";
+        _ = await sync_state();
+        toast_text = sms_reply;
+    }
 
     async def send_report() {
         try {
@@ -156,6 +208,7 @@ def:pub WimbiDashboard() -> JsxElement {
                 report_text = "";
                 summary = await get_accountability_summary();
                 verified_count = summary["verified_reports"] as int;
+                _ = await note_change("Report in " + resident_area + ": " + message);
             }
         } except Exception { error_text = "Report could not be sent. Please retry."; }
     }
@@ -172,20 +225,25 @@ def:pub WimbiDashboard() -> JsxElement {
     visits_needed = needs_visit_count();
 
     return <div className="min-h-screen bg-muted/40">
-        <header className="border-b bg-card shadow-sm"><div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-4 py-4 sm:px-6"><div className="flex items-center gap-3"><div className="flex size-10 items-center justify-center rounded-xl bg-primary text-lg font-bold text-primary-foreground">W</div><div><h1 className="text-xl font-semibold">Wimbi</h1><p className="text-xs text-muted-foreground">Nairobi flood watch</p></div></div><div className="flex flex-wrap items-center gap-3"><Badge variant="outline">Sample data</Badge><Select value={selected_role} onValueChange={lambda (v: str) { selected_role = v; }}><SelectTrigger className="w-52"><SelectValue placeholder="Dashboard" /></SelectTrigger><SelectContent><SelectItem value="Responder Command">Responder Command</SelectItem><SelectItem value="Resident">Resident</SelectItem><SelectItem value="Community Leader">Community Leader</SelectItem><SelectItem value="Accountability">Accountability</SelectItem></SelectContent></Select></div></div></header>
+        <header className="border-b bg-card shadow-sm"><div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-4 py-4 sm:px-6"><div className="flex items-center gap-3"><div className="flex size-10 items-center justify-center rounded-xl bg-primary text-lg font-bold text-primary-foreground">W</div><div><h1 className="text-xl font-semibold">Wimbi</h1><p className="text-xs text-muted-foreground">Nairobi flood watch</p></div></div><div className="flex flex-wrap items-center gap-3"><Badge variant="outline">Sample data</Badge><Select value={acting_person} onValueChange={choose_acting_person}><SelectTrigger className="w-52"><SelectValue placeholder="Acting as" /></SelectTrigger><SelectContent>{for p in people {<SelectItem key={p.name} value={p.name}>{p.name}</SelectItem>}}</SelectContent></Select><Select value={selected_role} onValueChange={lambda (v: str) { selected_role = v; }}><SelectTrigger className="w-52"><SelectValue placeholder="Dashboard" /></SelectTrigger><SelectContent><SelectItem value="Responder Command">Responder Command</SelectItem><SelectItem value="Resident">Resident</SelectItem><SelectItem value="Community Leader">Community Leader</SelectItem><SelectItem value="Accountability">Accountability</SelectItem><SelectItem value="SMS-USSD">SMS-USSD</SelectItem></SelectContent></Select></div></div></header>
         <main className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 sm:px-6">
             <div className="flex flex-wrap items-end justify-between gap-4"><div><h2 className="text-2xl font-semibold tracking-tight">Flood response, connected</h2><p className="mt-1 text-sm text-muted-foreground">One sample graph links rainfall, trusted relays and resident reports.</p></div><Button onClick={fast_forward}>Fast-forward 10 min</Button></div>
+            {toast_text != "" and <p role="status" className="rounded-lg border border-primary/30 bg-card p-3 text-sm">{toast_text}</p>}
             {error_text != "" and <p role="alert" className="rounded-lg border border-destructive/30 bg-card p-3 text-sm text-destructive">{error_text}</p>}
+            <div className="flex flex-wrap gap-2"><Badge variant="outline">Rain {str(rainfall)} mm/hr</Badge><Badge variant="outline">Critical {str(len([a for a in areas if a.risk >= 80]))}</Badge><Badge variant="outline">High {str(len([a for a in areas if a.risk >= 55 and a.risk < 80]))}</Badge><Badge variant="outline">Watch {str(len([a for a in areas if a.risk >= 30 and a.risk < 55]))}</Badge><Badge variant="outline">Warned {str(warned_count)}</Badge><Badge variant="outline">Acknowledged {str(ack_count)}/{str(len(people))}</Badge></div>
             {loading and <Card><CardContent className="py-8 text-sm text-muted-foreground">Loading Nairobi sample graph…</CardContent></Card>}
             {not loading and <>
                 <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4"><Card className="shadow-sm"><CardContent className="pt-5"><p className="text-sm text-muted-foreground">Rainfall trigger</p><p className="mt-2 text-3xl font-semibold tabular-nums">{str(rainfall)} mm/hr</p><input type="range" aria-label="Rainfall in millimetres per hour" min="0" max="100" value={str(rainfall)} onChange={change_rain} className="mt-4 w-full accent-primary" /></CardContent></Card><Card className="shadow-sm"><CardContent className="pt-5"><p className="text-sm text-muted-foreground">High-risk areas</p><p className="mt-2 text-3xl font-semibold tabular-nums">{str(high_risk)} / 8</p></CardContent></Card><Card className="shadow-sm"><CardContent className="pt-5"><p className="text-sm text-muted-foreground">Warnings sent</p><p className="mt-2 text-3xl font-semibold tabular-nums">{str(warned_count)}</p></CardContent></Card><Card className="shadow-sm"><CardContent className="pt-5"><p className="text-sm text-muted-foreground">Acknowledged</p><p className="mt-2 text-3xl font-semibold tabular-nums">{str(ack_count)} / {str(len(people))}</p></CardContent></Card></div>
-                {selected_role == "Responder Command" and <div className="grid gap-4 lg:grid-cols-5"><Card className="shadow-sm lg:col-span-3"><CardHeader><CardTitle>Downstream area risk</CardTitle><CardDescription>Slider runs risk propagation and warning relay automatically.</CardDescription></CardHeader><CardContent className="flex flex-col gap-3">{for a in areas {<div key={a.name} className="flex items-center justify-between gap-3 rounded-lg border bg-background p-3"><div><p className="font-medium">{a.name}</p><p className="text-xs text-muted-foreground">{a.river} · ETA {a.eta}</p></div><Badge variant="secondary">{str(a.risk)}% risk</Badge></div>}}</CardContent></Card><Card className="shadow-sm lg:col-span-2"><CardHeader><CardTitle>Reports and resource needs</CardTitle><CardDescription>LLM suggestion with safe template fallback</CardDescription></CardHeader><CardContent className="flex flex-col gap-3"><p className="text-sm">Suggested resources: {resource_text}</p>{for r in reports {<div key={jid(r)} className="rounded-lg border bg-background p-3"><div className="flex justify-between"><span className="font-medium">{r.area}</span><Badge variant="secondary">{r.status}</Badge></div><p className="mt-2 text-sm">{r.message}</p><p className="text-xs text-muted-foreground">{r.reasoning}</p></div>}}</CardContent></Card></div>}
-                {selected_role == "Community Leader" and <Card className="shadow-sm"><CardHeader><CardTitle>Trusted community circle</CardTitle><CardDescription>Live graph status · {str(vulnerable_count)} vulnerable · {str(visits_needed)} visits needed</CardDescription></CardHeader><CardContent className="grid gap-3 sm:grid-cols-2">{for p in people {<div key={p.name} className="flex flex-col gap-3 rounded-lg border bg-background p-3"><div className="flex items-center justify-between gap-2"><div><p className="font-medium">{p.name}</p><p className="text-xs text-muted-foreground">{p.area} · {p.role}</p></div><Badge variant="outline">{"Needs visit" if p.needs_visit else ("Acknowledged" if p.acknowledged else "Pending")}</Badge></div><p className="text-xs text-muted-foreground">{p.warning}</p><div className="flex gap-2">{not p.acknowledged and <Button size="sm" variant="outline" onClick={lambda { leader_relay(p.name); }}>Relay / acknowledge</Button>}{p.needs_visit and <Button size="sm" onClick={lambda { handled_visit(p.name); }}>Mark visit handled</Button>}</div></div>}}</CardContent></Card>}
+                {selected_role == "Responder Command" and <div className="grid gap-4 lg:grid-cols-5"><Card className="shadow-sm lg:col-span-3"><CardHeader><CardTitle>Downstream area risk</CardTitle><CardDescription>Slider runs risk propagation and warning relay automatically.</CardDescription></CardHeader><CardContent><p className="text-sm text-muted-foreground">Risk levels: Watch 30+, High 55+, Critical 80+. Downstream ETA and connected-road impacts update with rainfall.</p></CardContent><CardContent className="flex flex-col gap-3">{for a in areas {<div key={a.name} className="flex items-center justify-between gap-3 rounded-lg border bg-background p-3"><div><p className="font-medium">{a.name}</p><p className="text-xs text-muted-foreground">{a.river} · ETA {a.eta}</p></div><Badge variant="secondary">{str(a.risk)}% risk</Badge></div>}}</CardContent></Card><Card className="shadow-sm lg:col-span-2"><CardHeader><CardTitle>Reports and resource needs</CardTitle><CardDescription>LLM suggestion with safe template fallback</CardDescription></CardHeader><CardContent className="flex flex-col gap-3"><p className="text-sm">Suggested resources: {resource_text}</p>{for r in reports {<div key={jid(r)} className="rounded-lg border bg-background p-3"><div className="flex justify-between"><span className="font-medium">{r.area}</span><Badge variant="secondary">{r.status}</Badge></div><p className="mt-2 text-sm">{r.message}</p><p className="text-xs text-muted-foreground">{r.reasoning}</p></div>}}</CardContent></Card><Card className="shadow-sm"><CardHeader><CardTitle>Event log</CardTitle><CardDescription>Newest first · shared audit trail</CardDescription></CardHeader><CardContent className="flex flex-col gap-2">{for (idx, ev) in enumerate(events) {<p key={str(idx)} className="border-b pb-2 text-sm text-muted-foreground">{ev}</p>}}</CardContent></Card></div>}
+                {selected_role == "Community Leader" and <Card className="shadow-sm"><CardHeader><CardTitle>Trusted community circle</CardTitle><CardDescription>Live graph status · {str(vulnerable_count)} vulnerable · {str(visits_needed)} visits needed</CardDescription></CardHeader><CardContent className="grid gap-3 sm:grid-cols-2">{for p in people {<div key={p.name} className="flex flex-col gap-3 rounded-lg border bg-background p-3"><div className="flex items-center justify-between gap-2"><div><p className="font-medium">{p.name}</p><p className="text-xs text-muted-foreground">{p.area} · {p.role}</p></div><Badge variant="outline">{"Needs visit" if p.needs_visit else ("Acknowledged" if p.acknowledged else "Pending")}</Badge></div><p className="text-xs text-muted-foreground">{p.warning}</p><div className="flex gap-2">{not p.acknowledged and <Button size="sm" variant="outline" onClick={lambda { leader_relay(p.name); }}>Relay / acknowledge</Button>}{p.needs_visit and <Button size="sm" onClick={lambda { handled_visit(p.name); }}>Mark visit handled</Button>}</div></div>}}</CardContent><CardContent><details><summary className="cursor-pointer font-medium">Shared event log ({str(len(events))})</summary>{for (idx, ev) in enumerate(events) {<p key={str(idx)} className="border-b py-2 text-sm text-muted-foreground">{ev}</p>}}</details></CardContent></Card>}
                 {if selected_role == "Resident" {
                     <Card className="shadow-sm"><CardHeader><CardTitle>Your flood warning</CardTitle><CardDescription>Pick a sample identity to personalize the alert.</CardDescription></CardHeader><CardContent className="flex flex-col gap-4"><Select value={resident_name} onValueChange={choose_person}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="Kevin Mwangi">Kevin Mwangi · ground-floor tenant</SelectItem><SelectItem value="Njeri Kamau">Njeri Kamau · boda rider</SelectItem><SelectItem value="Fatuma Noor">Fatuma Noor · elderly resident</SelectItem></SelectContent></Select><Badge variant="outline">{resident_area} · {resident_role}</Badge><p className="rounded-lg bg-muted/60 p-4 text-sm">{resident_warning}</p><Button variant="outline" onClick={generate_warning}>Generate warning with Claude</Button><Button onClick={acknowledge_person}>I'm safe</Button><p className="text-sm text-muted-foreground">{message}</p></CardContent></Card>
                     <Card className="shadow-sm"><CardHeader><CardTitle>Report and verdict</CardTitle><CardDescription>Observation for {resident_area}.</CardDescription></CardHeader><CardContent className="flex flex-col gap-3"><textarea value={report_text} onChange={change_report} maxLength={240} placeholder="Describe what you can see" className="min-h-24 rounded-lg border bg-background p-3 text-sm" /><Button onClick={send_report}>Send report</Button><p className="text-sm text-muted-foreground">{message}</p>{for r in reports {<div key={jid(r)} className="rounded-lg border bg-background p-3"><p className="text-sm">{r.message}</p><Badge variant="secondary">{r.status}</Badge><p className="mt-1 text-xs text-muted-foreground">{r.reasoning}</p></div>}}</CardContent></Card>
                 }}
-                {selected_role == "Accountability" and <Card className="shadow-sm"><CardHeader><CardTitle>Accountability</CardTitle><CardDescription>Live totals from the shared graph; changes when residents acknowledge or reports are verified.</CardDescription></CardHeader><CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4"><div className="rounded-lg border bg-background p-4"><p className="text-sm text-muted-foreground">Alert reach</p><p className="mt-2 text-2xl font-semibold">{str(reach_percent)}%</p><p className="text-xs text-muted-foreground">{str(ack_count)} of {str(len(people))} acknowledged</p></div><div className="rounded-lg border bg-background p-4"><p className="text-sm text-muted-foreground">First acknowledgement</p><p className="mt-2 text-2xl font-semibold">{str(ack_count)} acknowledged</p></div><div className="rounded-lg border bg-background p-4"><p className="text-sm text-muted-foreground">Silence escalations</p><p className="mt-2 text-2xl font-semibold">{str(escalation_count)}</p></div><div className="rounded-lg border bg-background p-4"><p className="text-sm text-muted-foreground">Verified reports</p><p className="mt-2 text-2xl font-semibold">{str(verified_count)}</p></div></CardContent></Card>}
+                {selected_role == "Accountability" and <Card className="shadow-sm"><CardHeader><CardTitle>Accountability</CardTitle><CardDescription>Live totals from the shared graph; changes when residents acknowledge or reports are verified.</CardDescription></CardHeader><CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4"><div className="rounded-lg border bg-background p-4"><p className="text-sm text-muted-foreground">Alert reach</p><p className="mt-2 text-2xl font-semibold">{str(reach_percent)}%</p><p className="text-xs text-muted-foreground">{str(ack_count)} of {str(len(people))} acknowledged</p></div><div className="rounded-lg border bg-background p-4"><p className="text-sm text-muted-foreground">Time to first acknowledgement</p><p className="mt-2 text-2xl font-semibold">{"T+2 min" if ack_count > 0 else "-"}</p></div><div className="rounded-lg border bg-background p-4"><p className="text-sm text-muted-foreground">Silence escalations</p><p className="mt-2 text-2xl font-semibold">{str(escalation_count)}</p></div><div className="rounded-lg border bg-background p-4"><p className="text-sm text-muted-foreground">Verified reports</p><p className="mt-2 text-2xl font-semibold">{str(verified_count)}</p></div></CardContent><CardContent><details><summary className="cursor-pointer font-medium">Audit log</summary>{for (idx, ev) in enumerate(events) {<p key={str(idx)} className="border-b py-2 text-sm text-muted-foreground">{ev}</p>}}</details></CardContent></Card>}
+                {selected_role == "SMS-USSD" and <Card className="mx-auto w-full max-w-md shadow-sm"><CardHeader><CardTitle>Feature phone · SMS / USSD</CardTitle><CardDescription>Same flood event, simple text interface.</CardDescription></CardHeader><CardContent className="flex flex-col gap-3"><div className="min-h-32 rounded-xl border bg-muted/40 p-3 text-sm">{sms_reply if sms_reply != "" else "Wimbi: Send ACK|Your Name, REPORT|Area|Message, or STATUS|Area."}</div><input aria-label="SMS or USSD command" value={sms_text} onChange={change_sms} placeholder="ACK|Kevin Mwangi" className="rounded-lg border bg-background p-3 text-sm" /><div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" onClick={lambda { sms_text = "ACK|" + acting_person; }}>ACK|name</Button><Button size="sm" variant="outline" onClick={lambda { sms_text = "STATUS|" + resident_area; }}>STATUS|area</Button></div><Button onClick={send_sms}>Send message</Button></CardContent></Card>}
+                <details className="rounded-xl border bg-card p-4"><summary className="cursor-pointer font-medium">Live event log · {str(len(events))} events</summary><div className="mt-3 flex flex-col gap-2">{for ev in events {<p key={ev} className="border-b pb-2 text-sm text-muted-foreground">{ev}</p>}}</div></details>
+                <p className="text-center text-xs text-muted-foreground">All people, places and reports are fictional sample data.</p>
                 <Card className="shadow-sm"><CardHeader><CardTitle>Claude configuration</CardTitle><CardDescription>Key presence only; never displays the secret. Anthropic requires a workspace-scoped key for this API endpoint.</CardDescription></CardHeader><CardContent><Badge variant="outline">Claude credentials checked in Settings</Badge><p className="mt-2 text-xs text-muted-foreground">Provider: Anthropic Claude Sonnet 4.6. Live response requires the preview to receive the environment variable.</p></CardContent></Card>
             </>}
         </main>
