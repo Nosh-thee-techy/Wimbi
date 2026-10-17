@@ -9,7 +9,7 @@ Wimbi is a Jac/Jaseci-first flood-warning coordination demo. Every person, locat
 - `RiskPropagator` visits downstream `FlowsTo` edges and calculates risk and ETA. `WarningRelay` traverses the trust network from the ward officer and generates role- and language-tailored messages. `SilenceEscalator` follows trusted links and marks unacknowledged vulnerable residents for a visit. `ReportVerifier` traverses areas and linked reports to set verification status.
 - `set_rainfall` invokes risk propagation and warning relay. `run_demo_flow` demonstrates warning relay, silence escalation, and report verification.
 - `submit_resident_report(area_name, message)` validates a resident observation, attaches it to its Area, invokes verification, and returns updated graph data.
-- Warnings use Jac `by llm()` with `gpt-4o-mini`. Provider errors, missing credentials, and generation failures fall back to conservative role-aware templates. To try live generation, add `OPENAI_API_KEY` in JacHammer Settings → Environment and restart the preview. The demo remains usable without it.
+- Warnings use Jac `by llm()` with Anthropic Claude Sonnet 4.6 (`claude-sonnet-4-6`). Provider errors, missing credentials, and generation failures fall back to conservative role-aware templates. Add `ANTHROPIC_API_KEY` in JacHammer Settings → Environment and restart the preview to try live generation. The demo remains usable without it.
 - The client is Jac and reaches typed server endpoints via `sv import` and `await`; no Next.js, Supabase, or external database service is used.
 
 ## Demo

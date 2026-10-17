@@ -1,4 +1,4 @@
-import from services.wimbi { get_dashboard, set_rainfall, run_demo_flow, submit_resident_report }
+import from services.wimbi { get_dashboard, set_rainfall, run_demo_flow, submit_resident_report, generate_tailored_warning }
 import from .components.WimbiDashboard { WimbiDashboard }
 import ".styles.global.css";
 
