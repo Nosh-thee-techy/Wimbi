@@ -1,38 +1,24 @@
-# Empty
+# Wimbi | Nairobi Flood Watch
 
-A blank canvas — the minimal jac-shadcn starter the other templates are built on.
+Wimbi is a Jac/Jaseci-first demo for coordinating flood warnings around who needs to hear, from whom, and what neighbours confirm. All names, places, readings, alerts and reports in this demo are **Sample data** and are not live safety information.
 
-One client page, the violet theme wired up, and nothing else in the way. Start
-here when none of the other templates fit, and describe what you want to build.
+## Jac and Jaseci
 
-## What you get
+- `services/wimbi.jac` defines persistent Jac graph nodes for `Area`, `River`, `DrainagePoint`, `Road`, `Person` and `Report`, plus typed `FlowsTo`, `NearRiver`, `Connects`, `HasDrainage`, `Trusts` and `ReportsIn` edges.
+- The seeded Nairobi graph contains eight areas, two rivers, twelve people with roles and languages, weighted trust links, and a connected waterway sequence.
+- `set_rainfall` updates area risk/ETA and prepares tailored warning text. `run_demo_flow` simulates silence escalation, flags a vulnerable neighbour for a visit, confirms a resident report, and feeds it back into area risk.
+- The endpoints are Jac `def:pub` functions, called asynchronously by the Jac client component through `sv import`.
+- Graph nodes and relationships use Jac's Object-Spatial Programming model and are persistent in the server graph. Client UI and state are also written in Jac; no separate React, Next.js or database service is used.
 
-- `main.jac` — a `cl { }` block with a single `def:pub app()` page (a centered
-  card). This is the whole app.
-- `components/ui/` — the two jac-shadcn primitives (`Button`, `Card`) the page
-  uses. Add more with `jac add --shadcn <name>`.
-- `styles/global.css` — semantic design tokens and the theme, already wired up.
-- `lib/utils.jac` — `cn()` for merging class names.
+The requested agent actions are represented by Jac graph operations in this deterministic offline demo. `by llm()` copy generation and external messaging are not enabled so the demo runs without credentials; add an LLM provider key through JacHammer Settings before enabling any live LLM-backed warning workflow. Never use this sample interface as an operational warning service.
 
-## Run it
+## Demo
 
-```bash
-jac install
-jac start --dev
-```
+1. Use the rainfall slider to change mm/hr and update neighbourhood risk.
+2. Choose Resident, Community Leader, Responder Command or Accountability.
+3. Select **Fast-forward 10 min** to simulate escalation and a corroborated report.
+4. Review the updated area risk, neighbour report and reach metrics.
 
-Open <http://localhost:8000>.
+## Run
 
-## Where to go next
-
-- **Add a page / routing** — create a `pages/` directory; files become routes
-  by convention. See `jac guide jac-cl-routing`.
-- **Add a backend** — create `services/foo.sv.jac` with `def:pub` functions;
-  each becomes a `POST /function/<name>` REST endpoint automatically, and data
-  hung off `root` persists with no database to set up (Jac stores the graph for
-  you — SQLite in `.jac/data/` by default, MongoDB via `MONGODB_URI`). See
-  `jac guide jac-sv-endpoints` and `jac guide jac-sv-persistence`.
-- **Add auth** — see `jac guide jac-sv-auth` and `jac guide jac-cl-auth`.
-
-`AGENTS.md` lists the reference guides bundled with the compiler; read them
-before writing Jac — the syntax is easy to confuse with Python or JSX.
+Install dependencies with `jac install` and run the Jac web app with `jac start --dev main.jac`.

@@ -1,5 +1,7 @@
-import from .frontend { app as ClientApp }
+import from services.wimbi { get_dashboard, set_rainfall, run_demo_flow }
+import from .components.WimbiDashboard { WimbiDashboard }
+import ".styles.global.css";
 
 def:pub app() -> JsxElement {
-    return <ClientApp />;
+    return <WimbiDashboard />;
 }
