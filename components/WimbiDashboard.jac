@@ -38,6 +38,7 @@ def:pub WimbiDashboard() -> JsxElement {
         people = data["people"] as list[Person];
         reports = data["reports"] as list[Report];
         rainfall = data["rainfall"] as int;
+        acting_person = data["acting_as"] as str;
         summary = await get_accountability_summary();
         ack_count = summary["acknowledged"] as int;
         reach_percent = summary["reach_percent"] as int;
@@ -53,6 +54,7 @@ def:pub WimbiDashboard() -> JsxElement {
             people = data["people"] as list[Person];
             reports = data["reports"] as list[Report];
             rainfall = data["rainfall"] as int;
+            acting_person = data["acting_as"] as str;
             ack_count = len([p for p in people if p.acknowledged]);
             warned_count = len([p for p in people if p.warning != ""]);
             summary = await get_accountability_summary();
