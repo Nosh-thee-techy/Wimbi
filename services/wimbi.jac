@@ -36,7 +36,16 @@ def fallback_warning(language: str, role: str, area: str) -> str {
 
 def _ensure_seed() {
     existing_areas = [root -->][?:Area];
-    if len(existing_areas) == 8 { seeded = True; return; }
+    if len(existing_areas) == 8 {
+        seeded = True;
+        existing_people = [root -->][?:Person];
+        acknowledged_count = 0;
+        for person in existing_people { if person.acknowledged { acknowledged_count += 1; } }
+        if acknowledged_count == len(existing_people) {
+            for person in existing_people { if person.role != "ward_officer" { person.acknowledged = False; person.warning = ""; person.needs_visit = False; } }
+        }
+        return;
+    }
     for area in existing_areas { del area; }
     for person in [root -->][?:Person] { del person; }
     for river in [root -->][?:River] { del river; }
@@ -61,8 +70,7 @@ def _ensure_seed() {
     langs: list[str] = ["English", "Swahili", "Sheng", "Swahili", "Swahili", "Sheng", "English", "Swahili", "English", "Sheng", "Swahili", "Sheng"];
     for i in range(len(names)) {
         vulnerable = roles[i] == "elderly_resident" or roles[i] == "tenant_ground_floor";
-        acknowledged = True;
-        if roles[i] == "ward_officer" { acknowledged = False; }
+        acknowledged = roles[i] == "ward_officer";
         person = root ++> Person(name=names[i], role=roles[i], language=langs[i], area=area_names[i % len(area_names)], vulnerable=vulnerable, acknowledged=acknowledged);
     }
     people = [root -->][?:Person];
@@ -146,7 +154,9 @@ def:pub set_rainfall(mm: int) -> dict {
     if rain > 100 { rain = 100; }
     _ = root spawn RiskPropagator(rainfall=rain);
     _ = root spawn WarningRelay(rainfall=rain);
-    return {"areas": [root -->][?:Area], "people": [root -->][?:Person], "reports": [root -->][?:Report], "rainfall": rain, "elapsed": elapsed, "warned": len([root -->][?:Person]) - 1, "acknowledged": len([root -->][?:Person, acknowledged])};
+    warned_count = 0;
+    for p in [root -->][?:Person] { if p.warning != "" { warned_count += 1; } }
+    return {"areas": [root -->][?:Area], "people": [root -->][?:Person], "reports": [root -->][?:Report], "rainfall": rain, "elapsed": elapsed, "warned": warned_count, "acknowledged": len([root -->][?:Person, acknowledged])};
 }
 def:pub generate_tailored_warning(person_name: str) -> dict {
     _ensure_seed();
@@ -178,7 +188,6 @@ def:pub mark_visit_handled(person_name: str) -> dict {
 def:pub relay_warning(person_name: str) -> dict {
     _ensure_seed();
     folks = [root -->][?:Person];
-    for p in folks { if p.name == person_name { p.acknowledged = True; } }
     _ = root spawn WarningRelay(rainfall=rain);
     return {"people": [root -->][?:Person], "warned": len(folks) - 1, "acknowledged": len([root -->][?:Person, acknowledged])};
 }
@@ -235,6 +244,7 @@ def:pub submit_resident_report(area_name: str, message: str) -> dict {
 def:pub run_demo_flow() -> dict {
     _ensure_seed();
     elapsed = True;
+    for p in [root -->][?:Person] { if p.name == "Fatuma Noor" { p.acknowledged = False; p.needs_visit = True; } }
     _ = root spawn SilenceEscalator();
     _ = root spawn WarningRelay(rainfall=rain);
     _ = root spawn ReportVerifier();
