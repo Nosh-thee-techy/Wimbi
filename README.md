@@ -1,24 +1,22 @@
 # Wimbi | Nairobi Flood Watch
 
-Wimbi is a Jac/Jaseci-first demo for coordinating flood warnings around who needs to hear, from whom, and what neighbours confirm. All names, places, readings, alerts and reports in this demo are **Sample data** and are not live safety information.
+Wimbi is a Jac/Jaseci-first flood-warning coordination demo. Every person, location, measurement, warning, and report shown is **Sample data**, not live safety information.
 
-## Jac and Jaseci
+## Jac graph and agent walkers
 
-- `services/wimbi.jac` defines persistent Jac graph nodes for `Area`, `River`, `DrainagePoint`, `Road`, `Person` and `Report`, plus typed `FlowsTo`, `NearRiver`, `Connects`, `HasDrainage`, `Trusts` and `ReportsIn` edges.
-- The seeded Nairobi graph contains eight areas, two rivers, twelve people with roles and languages, weighted trust links, and a connected waterway sequence.
-- `set_rainfall` updates area risk/ETA and prepares tailored warning text. `run_demo_flow` simulates silence escalation, flags a vulnerable neighbour for a visit, confirms a resident report, and feeds it back into area risk.
-- The endpoints are Jac `def:pub` functions, called asynchronously by the Jac client component through `sv import`.
-- Graph nodes and relationships use Jac's Object-Spatial Programming model and are persistent in the server graph. Client UI and state are also written in Jac; no separate React, Next.js or database service is used.
-
-The requested agent actions are represented by Jac graph operations in this deterministic offline demo. `by llm()` copy generation and external messaging are not enabled so the demo runs without credentials; add an LLM provider key through JacHammer Settings before enabling any live LLM-backed warning workflow. Never use this sample interface as an operational warning service.
+- `services/wimbi.jac` models `Area`, `River`, `DrainagePoint`, `Road`, `Person`, and `Report` nodes connected by typed `FlowsTo`, `NearRiver`, `Connects`, `HasDrainage`, `Trusts`, and `ReportsIn` edges.
+- Seed data includes eight Nairobi neighbourhoods, two rivers, twelve people with role/language/vulnerability attributes, and weighted trust links. Seed initialization avoids creating another set of areas when the graph already exists.
+- `RiskPropagator` visits downstream `FlowsTo` edges and calculates risk and ETA. `WarningRelay` traverses the trust network from the ward officer and generates role- and language-tailored messages. `SilenceEscalator` follows trusted links and marks unacknowledged vulnerable residents for a visit. `ReportVerifier` traverses areas and linked reports to set verification status.
+- `set_rainfall` invokes risk propagation and warning relay. `run_demo_flow` demonstrates warning relay, silence escalation, and report verification.
+- `submit_resident_report(area_name, message)` validates a resident observation, attaches it to its Area, invokes verification, and returns updated graph data.
+- Warnings use Jac `by llm()` with `gpt-4o-mini`. Provider errors, missing credentials, and generation failures fall back to conservative role-aware templates. To try live generation, add `OPENAI_API_KEY` in JacHammer Settings → Environment and restart the preview. The demo remains usable without it.
+- The client is Jac and reaches typed server endpoints via `sv import` and `await`; no Next.js, Supabase, or external database service is used.
 
 ## Demo
 
-1. Use the rainfall slider to change mm/hr and update neighbourhood risk.
-2. Choose Resident, Community Leader, Responder Command or Accountability.
-3. Select **Fast-forward 10 min** to simulate escalation and a corroborated report.
-4. Review the updated area risk, neighbour report and reach metrics.
+1. Adjust the rainfall slider to update downstream risk.
+2. Choose Resident, Community Leader, Responder Command, or Accountability.
+3. In Resident, submit a water observation for a named area.
+4. Select **Fast-forward 10 min** to demonstrate silence escalation and verification.
 
-## Run
-
-Install dependencies with `jac install` and run the Jac web app with `jac start --dev main.jac`.
+This is a demo only. Do not rely on it for emergency response or real-world flood warnings. Existing sample data created before idempotent seeding may include duplicate sample records.
