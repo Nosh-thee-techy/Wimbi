@@ -45,7 +45,15 @@ def fallback_warning(language: str, role: str, area: str) -> str {
 
 def _ensure_seed() {
     existing = [root -->][?:Area];
-    if len(existing) == 8 { seeded = True; return; }
+    if len(existing) == 8 {
+        seeded = True;
+        persons_now = [root -->][?:Person];
+        ack_now = len([root -->][?:Person, acknowledged]);
+        if len(persons_now) > 0 and ack_now == len(persons_now) {
+            for person in persons_now { if person.role != "ward_officer" { person.acknowledged = False; person.warning = ""; person.needs_visit = False; } }
+        }
+        return;
+    }
     for a in existing { del a; }
     for p in [root -->][?:Person] { del p; }
     for r in [root -->][?:River] { del r; }
