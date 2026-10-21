@@ -2,7 +2,7 @@ import from .ui.card { Card, CardHeader, CardTitle, CardDescription, CardContent
 import from .ui.button { Button }
 import from .ui.badge { Badge }
 import from .ui.select { Select, SelectTrigger, SelectContent, SelectItem, SelectValue }
-sv import from ..services.wimbi { Area, Person, Report, get_dashboard, set_rainfall, run_demo_flow, submit_resident_report, generate_tailored_warning, set_resident_identity, acknowledge_warning, mark_visit_handled, relay_warning, get_accountability_summary, get_resident_reports, suggest_resources_live, check_claude_key_configuration, get_event_log, set_acting_as, record_action, simulate_sms_ussd }
+sv import from ..services.wimbi { Area, Person, Report, get_dashboard, set_rainfall, run_demo_flow, submit_resident_report, generate_tailored_warning, set_resident_identity, acknowledge_warning, mark_visit_handled, relay_warning, get_accountability_summary, get_resident_reports, suggest_resources_live, check_claude_key_configuration, get_event_log, set_acting_as, record_action, simulate_sms_ussd, reset_demo_event }
 
 def:pub WimbiDashboard() -> JsxElement {
     has areas: list[Area] = [];
@@ -39,6 +39,14 @@ def:pub WimbiDashboard() -> JsxElement {
         reports = data["reports"] as list[Report];
         rainfall = data["rainfall"] as int;
         acting_person = data["acting_as"] as str;
+        current_warned = 0;
+        current_acknowledged = 0;
+        current_high = 0;
+        for p in data["people"] as list[Person] { if p.warning != "" { current_warned += 1; } if p.acknowledged { current_acknowledged += 1; } }
+        for a in data["areas"] as list[Area] { if a.risk >= 55 { current_high += 1; } }
+        warned_count = current_warned;
+        ack_count = current_acknowledged;
+        high_risk = current_high;
         summary = await get_accountability_summary();
         ack_count = summary["acknowledged"] as int;
         reach_percent = summary["reach_percent"] as int;
@@ -55,8 +63,11 @@ def:pub WimbiDashboard() -> JsxElement {
             reports = data["reports"] as list[Report];
             rainfall = data["rainfall"] as int;
             acting_person = data["acting_as"] as str;
-            ack_count = len([p for p in people if p.acknowledged]);
-            warned_count = len([p for p in people if p.warning != ""]);
+            initial_ack_count = 0;
+            initial_warned_count = 0;
+            for p in data["people"] as list[Person] { if p.acknowledged { initial_ack_count += 1; } if p.warning != "" { initial_warned_count += 1; } }
+            ack_count = initial_ack_count;
+            warned_count = initial_warned_count;
             summary = await get_accountability_summary();
             reach_percent = summary["reach_percent"] as int;
             escalation_count = summary["escalations"] as int;
@@ -123,6 +134,7 @@ def:pub WimbiDashboard() -> JsxElement {
             resources = await suggest_resources_live();
             resource_text = ", ".join(resources["items"] as list[str]);
             if resource_text == "" { resource_text = "No additional sample resources suggested."; }
+            _ = await sync_state();
             _ = await note_change("Rain set to " + str(mm_value) + " mm/hr; risks propagated and warnings relayed.");
         } except Exception { error_text = "Rainfall update failed; retry the slider."; }
     }
@@ -159,8 +171,17 @@ def:pub WimbiDashboard() -> JsxElement {
             people = people_data["people"] as list[Person];
             summary = await get_accountability_summary();
             reach_percent = summary["reach_percent"] as int;
+            _ = await sync_state();
             _ = await note_change(resident_name + " acknowledged. Leader view and reach updated.");
         } except Exception { error_text = "Acknowledgement could not be saved."; }
+    }
+
+    async def reset_event() {
+        try {
+            data = await reset_demo_event();
+            toast_text = "New flood event started. Resident acknowledgements cleared.";
+            _ = await sync_state();
+        } except Exception { error_text = "Could not reset the sample event."; }
     }
 
     async def fast_forward() {
@@ -175,6 +196,7 @@ def:pub WimbiDashboard() -> JsxElement {
             ack_count = summary["acknowledged"] as int;
             reach_percent = summary["reach_percent"] as int;
             message = "Fast-forward complete. Silent vulnerable neighbours are flagged for visits.";
+            _ = await sync_state();
             _ = await note_change("T+10 silence escalator flagged vulnerable residents for visits.");
         } except Exception { error_text = "Escalation simulation failed."; }
     }
@@ -187,6 +209,7 @@ def:pub WimbiDashboard() -> JsxElement {
         ack_count = summary["acknowledged"] as int;
         reach_percent = summary["reach_percent"] as int;
         escalation_count = summary["escalations"] as int;
+        _ = await sync_state();
         _ = await note_change(name + " visit confirmed. Escalation cleared.");
     }
 
@@ -196,6 +219,7 @@ def:pub WimbiDashboard() -> JsxElement {
         ack_count = result["acknowledged"] as int;
         summary = await get_accountability_summary();
         reach_percent = summary["reach_percent"] as int;
+        _ = await sync_state();
         _ = await note_change("Warning relayed via " + name + "; circle state refreshed.");
     }
 
@@ -222,6 +246,7 @@ def:pub WimbiDashboard() -> JsxElement {
                 report_text = "";
                 summary = await get_accountability_summary();
                 verified_count = summary["verified_reports"] as int;
+                _ = await sync_state();
                 _ = await note_change("Report in " + resident_area + ": " + message);
             }
         } except Exception { error_text = "Report could not be sent. Please retry."; }
@@ -241,7 +266,7 @@ def:pub WimbiDashboard() -> JsxElement {
     return <div className="min-h-screen bg-muted/40">
         <header className="border-b bg-card shadow-sm"><div className="mx-auto flex w-full max-w-7xl flex-col gap-3 px-4 py-3 sm:px-6"><div className="flex flex-wrap items-center justify-between gap-3"><div className="flex items-center gap-3"><div className="flex size-9 items-center justify-center rounded-lg bg-primary text-base font-bold text-primary-foreground">W</div><div><h1 className="text-lg font-semibold tracking-tight">Wimbi</h1><p className="text-xs text-muted-foreground">Nairobi flood watch</p></div></div><Badge variant="outline">Sample data</Badge></div><div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center"><span className="shrink-0 text-xs font-medium text-muted-foreground">Acting as <span className="text-foreground">{acting_person}</span></span><div className="flex min-w-0 gap-2 overflow-x-auto pb-1">{for p in people {<Button key={p.name} size="sm" className="shrink-0" variant="outline" onClick={lambda { choose_acting_person(p.name); }}>{p.name}</Button>}}</div></div><div className="flex flex-wrap items-center gap-2"><span className="text-xs font-medium text-muted-foreground">View</span><Select value={selected_role} onValueChange={lambda (v: str) { selected_role = v; }}><SelectTrigger className="h-9 w-full sm:w-56"><SelectValue placeholder="Choose dashboard" /></SelectTrigger><SelectContent><SelectItem value="Responder Command">Responder Command</SelectItem><SelectItem value="Resident">Resident</SelectItem><SelectItem value="Community Leader">Community Leader</SelectItem><SelectItem value="Accountability">Accountability</SelectItem><SelectItem value="SMS-USSD">SMS-USSD</SelectItem></SelectContent></Select></div></div></header>
         <main className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 sm:px-6">
-            <div className="flex flex-wrap items-end justify-between gap-4"><div><h2 className="text-2xl font-semibold tracking-tight">Flood response, connected</h2><p className="mt-1 text-sm text-muted-foreground">One sample graph links rainfall, trusted relays and resident reports.</p></div><Button onClick={fast_forward}>Fast-forward 10 min</Button></div>
+            <div className="flex flex-wrap items-end justify-between gap-4"><div><h2 className="text-2xl font-semibold tracking-tight">Flood response, connected</h2><p className="mt-1 text-sm text-muted-foreground">One sample graph links rainfall, trusted relays and resident reports.</p></div><div className="flex flex-wrap gap-2"><Button variant="outline" onClick={reset_event}>Reset demo event</Button><Button onClick={fast_forward}>Fast-forward 10 min</Button></div></div>
             {toast_text != "" and <p role="status" className="rounded-lg border border-primary/30 bg-card p-3 text-sm">{toast_text}</p>}
             {error_text != "" and <p role="alert" className="rounded-lg border border-destructive/30 bg-card p-3 text-sm text-destructive">{error_text}</p>}
             <div className="flex flex-wrap gap-2"><Badge variant="outline">Rain {str(rainfall)} mm/hr</Badge><Badge variant="outline">Critical {str(len([a for a in areas if a.risk >= 80]))}</Badge><Badge variant="outline">High {str(len([a for a in areas if a.risk >= 55 and a.risk < 80]))}</Badge><Badge variant="outline">Watch {str(len([a for a in areas if a.risk >= 30 and a.risk < 55]))}</Badge><Badge variant="outline">Warned {str(warned_count)}</Badge><Badge variant="outline">Acknowledged {str(ack_count)}/{str(len(people))}</Badge></div>

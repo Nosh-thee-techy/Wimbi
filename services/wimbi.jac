@@ -49,7 +49,7 @@ def _ensure_seed() {
         seeded = True;
         persons_now = [root -->][?:Person];
         ack_now = len([root -->][?:Person, acknowledged]);
-        if len(persons_now) > 0 and ack_now == len(persons_now) {
+        if len(persons_now) == 12 and ack_now == 12 {
             for person in persons_now { if person.role != "ward_officer" { person.acknowledged = False; person.warning = ""; person.needs_visit = False; } }
         }
         return;
@@ -254,6 +254,20 @@ def:pub simulate_sms_ussd(command: str) -> dict {
     if cmd.startswith("STATUS|") { area_name = cmd[7:]; for a in [root -->][?:Area] { if a.name == area_name { return {"ok": True, "message": f"{area_name}: {a.risk}% risk, ETA {a.eta}"}; } } }
     if cmd.startswith("REPORT|") { parts = cmd.split("|"); if len(parts) >= 3 { return submit_resident_report(parts[1], "|".join(parts[2:])); } }
     return {"ok": False, "message": "Use ACK|name, REPORT|area|text, or STATUS|area."};
+}
+def:pub reset_demo_event() -> dict {
+    _ensure_seed();
+    for p in [root -->][?:Person] {
+        p.acknowledged = p.role == "ward_officer";
+        p.warning = "";
+        p.needs_visit = False;
+    }
+    for a in [root -->][?:Area] { a.risk = 8; a.eta = "Monitoring"; }
+    for report_item in [root -->][?:Report] { del report_item; }
+    rain = 18;
+    elapsed = False;
+    _ = record_action("New sample flood event started. All residents are pending.");
+    return {"areas": [root -->][?:Area], "people": [root -->][?:Person], "reports": [root -->][?:Report], "rainfall": rain, "elapsed": elapsed};
 }
 def:pub run_demo_flow() -> dict {
     _ensure_seed();
